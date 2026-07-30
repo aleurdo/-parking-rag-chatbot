@@ -1,4 +1,4 @@
-from openai import OpenAI
+import httpx
 
 from app.config import get_settings
 
@@ -30,7 +30,6 @@ def generate_response(
     conversation_history: list[dict] | None = None,
 ) -> str:
     settings = get_settings()
-    client = OpenAI(api_key=settings.openai_api_key)
 
     context_text = "\n\n---\n\n".join(
         f"[Source: {chunk['source']}]\n{chunk['content']}" for chunk in context_chunks
@@ -51,11 +50,17 @@ def generate_response(
 
     messages.append({"role": "user", "content": query})
 
-    response = client.chat.completions.create(
-        model=settings.openai_model,
-        messages=messages,
-        temperature=0.3,
-        max_tokens=1024,
+    response = httpx.post(
+        f"{settings.ollama_base_url}/api/chat",
+        json={
+            "model": settings.ollama_model,
+            "messages": messages,
+            "stream": False,
+            "options": {"temperature": 0.3},
+        },
+        timeout=120.0,
     )
+    response.raise_for_status()
+    data = response.json()
 
-    return response.choices[0].message.content
+    return data["message"]["content"]

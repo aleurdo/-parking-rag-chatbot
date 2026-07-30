@@ -15,7 +15,7 @@ def get_qdrant_client() -> QdrantClient:
     return QdrantClient(host=settings.qdrant_host, port=settings.qdrant_port)
 
 
-def ensure_collection(client: QdrantClient, dimension: int = 1536) -> None:
+def ensure_collection(client: QdrantClient, dimension: int = 768) -> None:
     settings = get_settings()
     collections = [c.name for c in client.get_collections().collections]
     if settings.qdrant_collection not in collections:
