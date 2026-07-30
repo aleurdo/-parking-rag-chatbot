@@ -46,7 +46,7 @@ class ChatSession:
         if self._is_booking_intent(user_message):
             return self._start_booking(user_message)
 
-        context_chunks = search_similar(user_message, top_k=5)
+        context_chunks = search_similar(user_message, top_k=3)
 
         raw_response = generate_response(
             query=user_message,

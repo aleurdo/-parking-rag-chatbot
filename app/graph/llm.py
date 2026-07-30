@@ -56,9 +56,9 @@ def generate_response(
             "model": settings.ollama_model,
             "messages": messages,
             "stream": False,
-            "options": {"temperature": 0.3},
+            "options": {"temperature": 0.3, "num_predict": 512},
         },
-        timeout=120.0,
+        timeout=300.0,
     )
     response.raise_for_status()
     data = response.json()
