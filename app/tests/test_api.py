@@ -25,6 +25,7 @@ class TestHealthEndpoint:
         data = response.json()
         assert "qdrant" in data["services"]
         assert "postgres" in data["services"]
+        assert "mcp_server" in data["services"]
 
 
 class TestChatEndpoint:
@@ -73,6 +74,25 @@ class TestChatEndpoint:
         )
         assert response.status_code == 422
 
+    @patch("app.api.routes.get_or_create_session")
+    def test_chat_returns_admin_request_id(self, mock_session_fn, client):
+        mock_session = MagicMock()
+        mock_session.process_message.return_value = {
+            "response": "Submitted for approval.",
+            "sources": [],
+            "blocked": False,
+            "admin_request_id": 42,
+            "booking_active": True,
+        }
+        mock_session_fn.return_value = mock_session
+
+        response = client.post(
+            "/chat",
+            json={"message": "reserve a spot", "session_id": "test4"},
+        )
+        assert response.status_code == 200
+        assert response.json()["admin_request_id"] == 42
+
 
 class TestIngestEndpoint:
     @patch("app.api.routes.ingest_chunks")
@@ -98,27 +118,30 @@ class TestIngestEndpoint:
         assert response.status_code == 400
 
 
-class TestReserveEndpoint:
-    @patch("app.api.routes.get_location_by_name")
-    def test_reserve_missing_location(self, mock_get_loc, client):
-        mock_get_loc.return_value = None
-
-        from app.db.session import get_db
-        from app.main import app as test_app
-
+class TestReserveStatusEndpoint:
+    @patch("app.api.routes.get_admin_request_by_id")
+    @patch("app.api.routes.get_db")
+    def test_status_returns_pending(self, mock_db_dep, mock_get_req, client):
+        from datetime import datetime
         mock_db = MagicMock()
-        test_app.dependency_overrides[get_db] = lambda: mock_db
+        mock_db_dep.return_value = iter([mock_db])
+        mock_req = MagicMock()
+        mock_req.id = 1
+        mock_req.status = "pending"
+        mock_req.admin_note = None
+        mock_req.decided_at = None
+        mock_get_req.return_value = mock_req
 
-        response = client.post(
-            "/reserve",
-            json={
-                "customer_name": "John Doe",
-                "customer_email": "john@example.com",
-                "license_plate": "ABC-1234",
-                "location_name": "Nonexistent Lot",
-                "vehicle_type": "standard",
-                "start_time": "2025-01-15T09:00:00",
-            },
-        )
+        response = client.get("/reserve/status/1")
+        assert response.status_code == 200
+        assert response.json()["status"] == "pending"
+
+    @patch("app.api.routes.get_admin_request_by_id")
+    @patch("app.api.routes.get_db")
+    def test_status_not_found(self, mock_db_dep, mock_get_req, client):
+        mock_db = MagicMock()
+        mock_db_dep.return_value = iter([mock_db])
+        mock_get_req.return_value = None
+
+        response = client.get("/reserve/status/999")
         assert response.status_code == 404
-        test_app.dependency_overrides.clear()

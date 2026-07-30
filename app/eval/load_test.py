@@ -32,3 +32,29 @@ class ParkEaseChatUser(HttpUser):
     @task(1)
     def health_check(self):
         self.client.get("/health")
+
+    @task(1)
+    def admin_list(self):
+        self.client.get("/admin/requests")
+
+    @task(1)
+    def reserve_status(self):
+        self.client.get("/reserve/status/1")
+
+
+class MCPUser(HttpUser):
+    wait_time = between(0.5, 1)
+
+    @task
+    def write_reservation(self):
+        self.client.post(
+            "/write",
+            json={
+                "reservation_id": 99999,
+                "customer_name": "Load Test",
+                "car_number": "LT-000",
+                "start_time": "2026-08-01T10:00:00Z",
+                "end_time": "2026-08-01T12:00:00Z",
+            },
+            headers={"Authorization": "Bearer mcp-secret-token"},
+        )

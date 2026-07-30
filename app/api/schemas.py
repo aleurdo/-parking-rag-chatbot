@@ -13,6 +13,7 @@ class ChatResponse(BaseModel):
     blocked: bool = False
     reason: str | None = None
     booking_active: bool = False
+    admin_request_id: int | None = None
 
 
 class IngestRequest(BaseModel):

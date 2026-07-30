@@ -51,7 +51,25 @@ CREATE TABLE IF NOT EXISTS availability (
     UNIQUE(zone_id, date)
 );
 
+CREATE TABLE IF NOT EXISTS admin_requests (
+    id SERIAL PRIMARY KEY,
+    session_id VARCHAR(100) NOT NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'pending',
+    customer_name VARCHAR(100) NOT NULL,
+    car_number VARCHAR(20) NOT NULL,
+    location VARCHAR(100) NOT NULL,
+    start_time TIMESTAMP NOT NULL,
+    end_time TIMESTAMP NOT NULL,
+    vehicle_type VARCHAR(50) NOT NULL DEFAULT 'standard',
+    admin_note TEXT,
+    recorded BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    decided_at TIMESTAMP
+);
+
 CREATE INDEX idx_reservations_location ON reservations(location_id);
 CREATE INDEX idx_reservations_start ON reservations(start_time);
 CREATE INDEX idx_reservations_status ON reservations(status);
 CREATE INDEX idx_availability_date ON availability(date);
+CREATE INDEX idx_admin_requests_status ON admin_requests(status);
+CREATE INDEX idx_admin_requests_session ON admin_requests(session_id);

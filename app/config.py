@@ -5,25 +5,38 @@ from functools import lru_cache
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
+    # LLM Provider
+    llm_provider: str = "ollama"
     ollama_base_url: str = "http://localhost:11434"
     ollama_model: str = "qwen2.5:3b"
     ollama_embedding_model: str = "nomic-embed-text"
+    llm_temperature: float = 0.2
+    llm_timeout: int = 300
 
+    # Vector DB (Qdrant)
     qdrant_host: str = "localhost"
     qdrant_port: int = 6333
     qdrant_collection: str = "parking_docs"
 
+    # PostgreSQL
     postgres_host: str = "localhost"
     postgres_port: int = 5432
     postgres_db: str = "parking_booking"
     postgres_user: str = "parking"
     postgres_password: str = "parking_secret"
 
+    # Application
     app_host: str = "0.0.0.0"
     app_port: int = 8000
     log_level: str = "info"
 
+    # Guardrails
     guardrails_enabled: bool = True
+
+    # MCP Server
+    mcp_base_url: str = "http://localhost:8001"
+    mcp_api_token: str = "mcp-secret-token"
+    mcp_output_file: str = "/data/approved_reservations.txt"
 
     @property
     def database_url(self) -> str:

@@ -12,6 +12,8 @@ from app.api.schemas import (
     ReservationRequest,
     ReservationResponse,
 )
+from app.api.admin_schemas import ReserveStatusResponse
+from app.db.admin_repository import get_admin_request_by_id
 from app.db.repository import (
     check_availability,
     create_reservation,
@@ -47,9 +49,18 @@ def health_check():
     except Exception:
         services["postgres"] = "unavailable"
 
+    try:
+        import httpx
+        from app.config import get_settings
+        settings = get_settings()
+        resp = httpx.get(f"{settings.mcp_base_url}/health", timeout=5.0)
+        services["mcp_server"] = "healthy" if resp.status_code == 200 else "unavailable"
+    except Exception:
+        services["mcp_server"] = "unavailable"
+
     return HealthResponse(
         status="ok",
-        version="1.0.0",
+        version="2.0.0",
         services=services,
     )
 
@@ -64,6 +75,7 @@ def chat(request: ChatRequest):
         blocked=result.get("blocked", False),
         reason=result.get("reason"),
         booking_active=result.get("booking_active", False),
+        admin_request_id=result.get("admin_request_id"),
     )
 
 
@@ -118,4 +130,17 @@ def make_reservation(request: ReservationRequest, db: Session = Depends(get_db))
         reservation_id=reservation.id,
         status="confirmed",
         message=f"Reservation confirmed at {location.name}. Your spot is reserved!",
+    )
+
+
+@router.get("/reserve/status/{request_id}", response_model=ReserveStatusResponse)
+def reservation_status(request_id: int, db: Session = Depends(get_db)):
+    request = get_admin_request_by_id(db, request_id)
+    if not request:
+        raise HTTPException(status_code=404, detail="Reservation request not found")
+    return ReserveStatusResponse(
+        request_id=request.id,
+        status=request.status,
+        admin_note=request.admin_note,
+        decided_at=request.decided_at,
     )

@@ -4,7 +4,9 @@ uvicorn[standard]==0.34.0
 pydantic==2.10.4
 pydantic-settings==2.7.1
 
-# LLM & Embeddings (via Ollama HTTP API)
+# LLM & LangChain (Ollama)
+langchain-core==0.3.28
+langchain-ollama==0.2.3
 httpx==0.28.1
 
 # Vector DB

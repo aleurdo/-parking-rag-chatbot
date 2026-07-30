@@ -10,6 +10,7 @@ from sqlalchemy import (
     Integer,
     Numeric,
     String,
+    Text,
     Time,
 )
 from sqlalchemy.orm import DeclarativeBase, relationship
@@ -84,3 +85,21 @@ class Availability(Base):
     zone_id = Column(Integer, ForeignKey("parking_zones.id"))
     date = Column(Date, nullable=False)
     available_spaces = Column(Integer, nullable=False)
+
+
+class AdminRequest(Base):
+    __tablename__ = "admin_requests"
+
+    id = Column(Integer, primary_key=True)
+    session_id = Column(String(100), nullable=False)
+    status = Column(String(20), nullable=False, default="pending")
+    customer_name = Column(String(100), nullable=False)
+    car_number = Column(String(20), nullable=False)
+    location = Column(String(100), nullable=False)
+    start_time = Column(DateTime, nullable=False)
+    end_time = Column(DateTime, nullable=False)
+    vehicle_type = Column(String(50), nullable=False, default="standard")
+    admin_note = Column(Text, nullable=True)
+    recorded = Column(Boolean, default=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    decided_at = Column(DateTime, nullable=True)

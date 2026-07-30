@@ -1,177 +1,228 @@
-# ParkEase RAG Chatbot
+# ParkEase RAG Chatbot (Stage 2)
 
-A production-oriented Retrieval-Augmented Generation (RAG) chatbot for parking reservation and information services. Built with FastAPI, Qdrant vector database, PostgreSQL, and OpenAI.
+A production-oriented multi-agent parking reservation system with RAG, human-in-the-loop admin approval, MCP file recording, and LangGraph orchestration. Uses **Qwen2.5:3B** via Ollama (local, free).
 
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│                      FastAPI Server                       │
-├─────────────┬──────────────┬──────────────┬─────────────┤
-│   /chat     │   /ingest    │   /reserve   │   /health   │
-└──────┬──────┴──────┬───────┴──────┬───────┴─────────────┘
-       │             │              │
-       ▼             ▼              ▼
-┌──────────────┐ ┌──────────┐ ┌──────────────┐
-│  Guardrails  │ │ Chunker  │ │  Repository  │
-│  (Input/Out) │ │& Embedder│ │   (SQL)      │
-└──────┬───────┘ └────┬─────┘ └──────┬───────┘
-       │              │               │
-       ▼              ▼               ▼
-┌──────────────┐ ┌──────────┐ ┌──────────────┐
-│  LLM (GPT)  │ │  Qdrant  │ │  PostgreSQL  │
-│  Generation  │ │ VectorDB │ │  (Bookings)  │
-└──────────────┘ └──────────┘ └──────────────┘
+┌──────────────────────────────────────────────────────────────────┐
+│                         FastAPI Server                             │
+├───────────┬──────────┬───────────┬──────────┬────────────────────┤
+│  /chat    │ /ingest  │ /reserve  │ /health  │ /admin/*           │
+└─────┬─────┴────┬─────┴─────┬────┴──────────┴─────────┬──────────┘
+      │          │           │                          │
+      ▼          ▼           ▼                          ▼
+┌───────────┐ ┌────────┐ ┌───────────┐          ┌─────────────┐
+│ LangGraph │ │Chunker │ │Repository │          │ Admin Agent │
+│Orchestratr│ │+Embed  │ │  (SQL)    │          │ (Approve/   │
+│           │ │        │ │           │          │  Refuse)    │
+├───────────┤ └───┬────┘ └─────┬─────┘          └──────┬──────┘
+│User Agent │     │            │                        │
+│Admin Node │     ▼            ▼                        ▼
+│Record Node│ ┌────────┐ ┌──────────┐           ┌──────────────┐
+└─────┬─────┘ │ Qdrant │ │PostgreSQL│           │  MCP Server  │
+      │       └────────┘ └──────────┘           │(File Writer) │
+      ▼                                         └──────────────┘
+┌───────────┐
+│  Ollama   │
+│qwen2.5:3b │
+└───────────┘
 ```
 
-### Data Flow
-1. **Static Knowledge** → Markdown docs → Chunked & embedded → Qdrant
-2. **Dynamic Data** (availability, reservations) → PostgreSQL
-3. **User Query** → Guardrails check → Vector search → LLM generation → Output filter → Response
+### LangGraph Flow
+```
+User Message → [User Agent Node]
+                    │
+          ┌─────────┼──────────┐
+          ▼         ▼          ▼
+      [RAG Q&A] [Reserve]  [Status]
+                    │          │
+                    ▼          ▼
+            [Admin Approval] [Check DB]
+                    │
+            ┌───────┴───────┐
+            ▼               ▼
+        [Pending]      [Approved]
+                           │
+                           ▼
+                    [Record Node]
+                           │
+                           ▼
+                    [MCP Write File]
+```
 
 ## Features
 
-- **RAG-based Q&A**: Answers parking questions using retrieved document context with source citations
-- **Reservation Flow**: Multi-turn conversation to collect booking details and create reservations
-- **Guardrails**: Input/output filtering for prompt injection, PII, secrets, and credentials
-- **Evaluation**: Retrieval quality metrics (Recall@K, Precision@K) and load testing
-- **Dockerized**: One-command setup with Docker Compose
+- **RAG Q&A**: Answers parking questions with source citations (Qdrant + Ollama embeddings)
+- **Reservation Flow**: Multi-turn collection of name, car number, period, location
+- **Admin Approval**: Human-in-the-loop via REST API; persistent in PostgreSQL
+- **MCP Recording**: Approved reservations written to file via authenticated MCP server
+- **LangGraph Orchestration**: State machine connecting user, admin, and recording nodes
+- **Guardrails**: Input/output filtering (prompt injection, PII, secrets)
+- **LLM**: Qwen2.5:3B via LangChain + ChatOllama (local, no API key)
+- **Evaluation**: Recall@K, Precision@K metrics + Locust load testing
 
 ## Project Structure
 
 ```
 parking-rag-chatbot/
 ├── app/
-│   ├── api/            # FastAPI routes & schemas
-│   ├── rag/            # Chunking, embeddings, vector store
-│   ├── graph/          # LLM orchestration & chat session logic
+│   ├── api/            # FastAPI routes (user + admin)
+│   ├── llm/            # LangChain provider factory (Ollama)
+│   ├── graph/          # LangGraph orchestrator, state, LLM generation
+│   ├── rag/            # Chunking, embeddings, Qdrant vector store
 │   ├── guardrails/     # Input/output filtering & policy
-│   ├── db/             # SQLAlchemy models & repository
-│   ├── eval/           # Evaluation dataset & metrics
-│   ├── tests/          # Unit & integration tests
-│   ├── config.py       # Settings (from env vars)
+│   ├── db/             # SQLAlchemy models + repositories
+│   ├── mcp/            # MCP client (calls file writer)
+│   ├── eval/           # Evaluation dataset, metrics, load tests
+│   ├── tests/          # Unit + integration tests (78+ tests)
+│   ├── config.py       # Settings from .env
 │   └── main.py         # FastAPI app entry point
+├── mcp_server/         # Standalone MCP file writer service
 ├── data/
 │   ├── static_docs/    # Knowledge base (Markdown)
-│   ├── schema.sql      # PostgreSQL schema
+│   ├── schema.sql      # PostgreSQL schema (incl. admin_requests)
 │   └── seed.sql        # Sample data
+├── storage/            # MCP output directory (shared volume)
+├── docs/               # Performance report
+├── slides/             # Presentation outline
 ├── .github/workflows/  # CI/CD pipeline
 ├── Dockerfile
 ├── docker-compose.yml
-├── requirements.txt
-└── README.md
+└── requirements.txt
 ```
 
 ## Quick Start
 
 ### Prerequisites
 - Docker & Docker Compose
-- OpenAI API key
+- Ollama installed (`curl -fsSL https://ollama.com/install.sh | sh`)
 
 ### Setup
 
-1. **Clone and configure:**
-   ```bash
-   git clone <repo-url>
-   cd parking-rag-chatbot
-   cp .env.example .env
-   # Edit .env and add your OPENAI_API_KEY
-   ```
-
-2. **Start all services:**
-   ```bash
-   docker compose up --build
-   ```
-
-3. **Ingest documents:**
-   ```bash
-   curl -X POST http://localhost:8000/ingest \
-     -H "Content-Type: application/json" \
-     -d '{"docs_directory": "data/static_docs"}'
-   ```
-
-4. **Start chatting:**
-   ```bash
-   curl -X POST http://localhost:8000/chat \
-     -H "Content-Type: application/json" \
-     -d '{"message": "What are the parking rates?", "session_id": "user1"}'
-   ```
-
-### Local Development (without Docker)
-
 ```bash
-python -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
+# 1. Pull required models
+ollama pull qwen2.5:3b
+ollama pull nomic-embed-text
 
-# Start Qdrant and PostgreSQL separately, then:
-uvicorn app.main:app --reload
+# 2. Clone and configure
+git clone https://github.com/aleurdo/-parking-rag-chatbot.git
+cd parking-rag-chatbot
+cp .env.example .env
+
+# 3. Start all services
+docker compose up --build
+
+# 4. Ingest documents
+curl -X POST http://localhost:8000/ingest \
+  -H "Content-Type: application/json" \
+  -d '{"docs_directory": "data/static_docs"}'
 ```
 
 ## API Endpoints
+
+### User Endpoints
 
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/health` | Service health check |
 | POST | `/chat` | Send a chat message |
 | POST | `/ingest` | Ingest documents into vector DB |
-| POST | `/reserve` | Create a parking reservation |
+| POST | `/reserve` | Create a reservation directly |
+| GET | `/reserve/status/{id}` | Check admin approval status |
 
-### POST /chat
-```json
-{
-  "message": "What are the parking rates at Downtown Garage?",
-  "session_id": "user-123"
-}
+### Admin Endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/admin/requests` | List pending admin requests |
+| GET | `/admin/requests/{id}` | Get request detail |
+| POST | `/admin/requests/{id}/approve` | Approve a reservation |
+| POST | `/admin/requests/{id}/refuse` | Refuse a reservation |
+
+### MCP Server (port 8001)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/write` | Write approved reservation to file |
+| GET | `/health` | MCP server health |
+
+## Usage Examples
+
+### Chat (FAQ)
+```bash
+curl -X POST http://localhost:8000/chat \
+  -H "Content-Type: application/json" \
+  -d '{"message": "What are the parking rates?", "session_id": "user1"}'
 ```
 
-Response:
-```json
-{
-  "response": "Downtown Garage rates are $3.00 for the first hour...",
-  "sources": ["pricing.md"],
-  "blocked": false,
-  "booking_active": false
-}
+### Make a Reservation (via chat)
+```bash
+curl -X POST http://localhost:8000/chat \
+  -H "Content-Type: application/json" \
+  -d '{
+    "message": "I want to reserve at Downtown Garage. Alice Smith, car 34-AB-123, from 2026-08-01T10:00 to 2026-08-01T14:00",
+    "session_id": "user1"
+  }'
 ```
 
-### POST /reserve
-```json
-{
-  "customer_name": "John Doe",
-  "customer_email": "john@example.com",
-  "license_plate": "ABC-1234",
-  "location_name": "Downtown Garage",
-  "vehicle_type": "standard",
-  "start_time": "2025-01-15T09:00:00"
-}
+### Admin Approval
+```bash
+# List pending
+curl http://localhost:8000/admin/requests
+
+# Approve
+curl -X POST http://localhost:8000/admin/requests/1/approve \
+  -H "Content-Type: application/json" \
+  -d '{"note": "Approved - space available"}'
+
+# Check status
+curl http://localhost:8000/reserve/status/1
 ```
+
+### Check recorded file
+```bash
+cat storage/approved_reservations.txt
+# Output: Alice Smith | 34-AB-123 | 2026-08-01T10:00:00Z - 2026-08-01T14:00:00Z | 2026-07-30T14:15:00Z [ID:1]
+```
+
+## Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| LLM_PROVIDER | ollama | LLM backend (ollama) |
+| OLLAMA_BASE_URL | http://localhost:11434 | Ollama API URL |
+| OLLAMA_MODEL | qwen2.5:3b | Chat model |
+| OLLAMA_EMBEDDING_MODEL | nomic-embed-text | Embedding model |
+| LLM_TEMPERATURE | 0.2 | Generation temperature |
+| LLM_TIMEOUT | 300 | Request timeout (seconds) |
+| QDRANT_HOST | localhost | Qdrant host |
+| POSTGRES_HOST | localhost | PostgreSQL host |
+| MCP_BASE_URL | http://localhost:8001 | MCP server URL |
+| MCP_API_TOKEN | mcp-secret-token | MCP auth token |
+| GUARDRAILS_ENABLED | true | Enable input/output filtering |
 
 ## Running Tests
 
 ```bash
-# Unit tests (no external services needed)
-pytest app/tests/ -v --ignore=app/tests/test_integration.py
+# All unit tests (no external services needed)
+pytest app/tests/ -v --ignore=app/tests/test_integration.py --ignore=app/tests/test_integration_flow.py
 
 # With coverage
-pytest app/tests/ --cov=app --cov-report=term-missing --ignore=app/tests/test_integration.py
+pytest app/tests/ --cov=app --cov-report=term-missing \
+  --ignore=app/tests/test_integration.py --ignore=app/tests/test_integration_flow.py
 
 # Integration tests (requires running services)
-pytest app/tests/test_integration.py -v
+pytest app/tests/test_integration_flow.py -v
 ```
 
 ## Evaluation
 
-### Retrieval Quality
 ```bash
-# After ingesting documents:
+# Retrieval quality (after ingest)
 python -m app.eval.metrics
-```
 
-Outputs Recall@K and Precision@K for a labeled evaluation dataset (12 queries).
-
-### Load Testing
-```bash
+# Load testing
 locust -f app/eval/load_test.py --host=http://localhost:8000
 ```
 
@@ -179,26 +230,17 @@ locust -f app/eval/load_test.py --host=http://localhost:8000
 
 GitHub Actions pipeline (`.github/workflows/ci.yml`):
 1. **Lint** → ruff check
-2. **Unit Tests** → pytest (mocked external deps)
+2. **Unit Tests** → pytest (mocked LLM + DB)
 3. **Integration Tests** → with Postgres & Qdrant services
 
 ## Design Decisions
 
 | Decision | Choice | Rationale |
 |----------|--------|-----------|
-| Vector DB | Qdrant | Excellent Docker support, simple API, cosine similarity |
-| SQL DB | PostgreSQL | Mature, widely supported, handles availability/reservations |
-| Embeddings | OpenAI text-embedding-3-small | High quality, cost-effective, 1536 dimensions |
-| LLM | GPT-4o-mini | Fast, affordable, good instruction following |
-| Guardrails | Regex + heuristic | Lightweight, no extra model dependencies for PII |
-| Framework | FastAPI | Async-ready, auto-docs, Pydantic validation |
-| Chunking | Header-based + size limit | Preserves semantic coherence of parking info sections |
-
-## Guardrails Policy
-
-The system implements layered protection:
-- **Input**: Blocks prompt injection, credential extraction attempts
-- **Output**: Redacts API keys, masks PII (emails, phones, cards, SSNs)
-- **Scope**: Bot refuses off-topic or harmful requests
-
-See `app/guardrails/policy.py` for the full policy specification.
+| LLM | Qwen2.5:3B via Ollama | Local, free, fast enough on CPU |
+| LLM Framework | LangChain (ChatOllama) | Standard interface, easy to swap |
+| Orchestration | LangGraph-style state machine | Deterministic flow, testable nodes |
+| Admin Channel | REST API | Simple, testable, no external deps |
+| MCP Server | Separate FastAPI service | Isolation, shared volume for file |
+| Auth | Bearer token | Simple, effective for service-to-service |
+| Idempotency | [ID:N] marker in file | Prevents duplicate writes on retry |
